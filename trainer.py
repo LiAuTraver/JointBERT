@@ -10,6 +10,7 @@ from transformers import get_linear_schedule_with_warmup
 from torch.optim import AdamW
 
 from utils import MODEL_CLASSES, compute_metrics, get_intent_labels, get_slot_labels
+from slot_constraint import build_intent_slot_mask, decode_slot_predictions, repair_bio_slot_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,14 @@ class Trainer(object):
     self.slot_label_lst = get_slot_labels(args)
     # Use cross entropy ignore index as padding label id so that only real label ids contribute to the loss later
     self.pad_token_label_id = args.ignore_index
+    self.intent_slot_mask: np.ndarray | None = None
+    if getattr(self.args, "use_intent_slot_constraint", False):
+      if getattr(self.args, "use_crf", False):
+        logger.warning(
+          "Intent-slot constraint decoding is ignored when CRF decoding is enabled.")
+      else:
+        self.intent_slot_mask = build_intent_slot_mask(
+          self.args, self.intent_label_lst, self.slot_label_lst)
 
     self.config_class, self.model_class, _ = MODEL_CLASSES[args.model_type]
     self.config = self.config_class.from_pretrained(
@@ -205,11 +214,20 @@ class Trainer(object):
     }
 
     # Intent result
-    intent_preds = np.argmax(intent_preds, axis=1)
+    intent_logits = intent_preds
+    intent_preds = np.argmax(intent_logits, axis=1)
+    constraint_applied_count = 0
 
     # Slot result
     if not self.args.use_crf:
-      slot_preds = np.argmax(slot_preds, axis=2)
+      if getattr(self.args, "use_intent_slot_constraint", False):
+        slot_preds, constraint_applied_count = decode_slot_predictions(
+          intent_logits,
+          slot_preds,
+          self.intent_slot_mask,
+          getattr(self.args, "intent_slot_constraint_threshold", 0.99))
+      else:
+        slot_preds = np.argmax(slot_preds, axis=2)
     slot_label_map = {i: label for i, label in enumerate(self.slot_label_lst)}
     out_slot_label_list = [[] for _ in range(out_slot_labels_ids.shape[0])]
     slot_preds_list = [[] for _ in range(out_slot_labels_ids.shape[0])]
@@ -221,9 +239,17 @@ class Trainer(object):
             slot_label_map[out_slot_labels_ids[i][j]])
           slot_preds_list[i].append(slot_label_map[slot_preds[i][j]])
 
+    if getattr(self.args, "use_bio_repair", False):
+      slot_preds_list = [
+        repair_bio_slot_sequence(slot_preds_, self.slot_label_lst)
+        for slot_preds_ in slot_preds_list
+      ]
+
     total_result = compute_metrics(
       intent_preds, out_intent_label_ids, slot_preds_list, out_slot_label_list)
     results.update(total_result)
+    if getattr(self.args, "use_intent_slot_constraint", False):
+      results["intent_slot_constraint_applied"] = constraint_applied_count
 
     logger.info("***** Eval results *****")
     for key in sorted(results.keys()):

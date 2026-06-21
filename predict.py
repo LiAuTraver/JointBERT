@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 
 from utils import init_logger, load_tokenizer, get_intent_labels, get_slot_labels, MODEL_CLASSES
+from slot_constraint import build_intent_slot_mask, decode_slot_predictions, repair_bio_slot_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,15 @@ def get_device(pred_config):
 
 def get_args(pred_config):
   return torch.load(os.path.join(pred_config.model_dir, 'training_args.bin'), weights_only=False)
+
+
+def apply_prediction_overrides(pred_config, args):
+  for name in [
+      "use_intent_slot_constraint",
+      "intent_slot_constraint_threshold",
+      "use_bio_repair"]:
+    setattr(args, name, getattr(pred_config, name))
+  return args
 
 
 def load_model(pred_config, args, device):
@@ -132,13 +142,19 @@ def convert_input_file_to_tensor_dataset(lines,
 
 def predict(pred_config):
   # load model and args
-  args = get_args(pred_config)
+  args = apply_prediction_overrides(pred_config, get_args(pred_config))
   device = get_device(pred_config)
   model = load_model(pred_config, args, device)
   logger.info(args)
 
   intent_label_lst = get_intent_labels(args)
   slot_label_lst = get_slot_labels(args)
+  intent_slot_mask = None
+  if getattr(args, "use_intent_slot_constraint", False):
+    if getattr(args, "use_crf", False):
+      logger.warning("Intent-slot constraint decoding is ignored when CRF decoding is enabled.")
+    else:
+      intent_slot_mask = build_intent_slot_mask(args, intent_label_lst, slot_label_lst)
 
   # Convert input file to TensorDataset
   pad_token_label_id = args.ignore_index
@@ -193,10 +209,19 @@ def predict(pred_config):
         all_slot_label_mask = np.append(
           all_slot_label_mask, batch[3].detach().cpu().numpy(), axis=0)
 
-  intent_preds = np.argmax(intent_preds, axis=1)
+  intent_logits = intent_preds
+  intent_preds = np.argmax(intent_logits, axis=1)
 
   if not args.use_crf:
-    slot_preds = np.argmax(slot_preds, axis=2)
+    if getattr(args, "use_intent_slot_constraint", False):
+      slot_preds, constraint_applied_count = decode_slot_predictions(
+        intent_logits,
+        slot_preds,
+        intent_slot_mask,
+        getattr(args, "intent_slot_constraint_threshold", 0.99))
+      logger.info("Intent-slot constraints applied to %d examples", constraint_applied_count)
+    else:
+      slot_preds = np.argmax(slot_preds, axis=2)
 
   slot_label_map = {i: label for i, label in enumerate(slot_label_lst)}
   slot_preds_list = [[] for _ in range(slot_preds.shape[0])]
@@ -205,6 +230,12 @@ def predict(pred_config):
     for j in range(slot_preds.shape[1]):
       if all_slot_label_mask[i, j] != pad_token_label_id:
         slot_preds_list[i].append(slot_label_map[slot_preds[i][j]])
+
+  if getattr(args, "use_bio_repair", False):
+    slot_preds_list = [
+      repair_bio_slot_sequence(slot_preds_, slot_label_lst)
+      for slot_preds_ in slot_preds_list
+    ]
 
   # Write to output file
   with open(pred_config.output_file, "w", encoding="utf-8") as f:
@@ -236,6 +267,12 @@ if __name__ == "__main__":
                       help="Batch size for prediction")
   parser.add_argument("--no_cuda", action="store_true",
                       help="Avoid using CUDA when available")
+  parser.add_argument("--use_intent_slot_constraint", action="store_true",
+                      help="Use predicted intent to mask invalid slot labels during decoding.")
+  parser.add_argument("--intent_slot_constraint_threshold", default=0.99, type=float,
+                      help="Minimum intent confidence required before slot constraints are applied.")
+  parser.add_argument("--use_bio_repair", action="store_true",
+                      help="Repair invalid BIO slot transitions after decoding.")
 
   pred_config = parser.parse_args()
   predict(pred_config)

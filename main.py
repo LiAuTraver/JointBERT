@@ -6,6 +6,35 @@ from data_loader import load_and_cache_examples
 from sanity_check import check_dataset
 
 
+# python main.py
+# --task atis --model_type bert --model_dir outputs/atis_jointbert
+# --do_train --do_eval --num_train_epochs 10
+# --train_batch_size 32 --eval_batch_size 64
+# --learning_rate 5e-5 --max_seq_len 50
+# --slot_loss_coef 1.0 --seed 42
+
+# ---
+
+# python main.py
+# --task atis --model_type bert --model_dir outputs/atis_bio_repair
+# --do_train --do_eval --num_train_epochs 10
+# --train_batch_size 32 --eval_batch_size 64
+# --learning_rate 5e-5 --max_seq_len 50
+# --seed 42 --use_bio_repair
+
+# ---
+
+# python main.py
+# --task atis --model_type bert --model_dir outputs/atis_jointbert_with_constraints
+# --do_train --do_eval --num_train_epochs 10
+# --train_batch_size 32 --eval_batch_size 64
+# --learning_rate 5e-5 --max_seq_len 50
+# --slot_loss_coef 1.0 --seed 42
+# --use_intent_slot_constraint
+# --intent_slot_constraint_threshold 0.99
+# --use_bio_repair
+
+
 def main(args: argparse.Namespace):
   init_logger()
   set_seed(args)
@@ -88,6 +117,13 @@ if __name__ == '__main__':
 
   parser.add_argument('--slot_loss_coef', type=float,
                       default=1.0, help='Coefficient for the slot loss.')
+
+  parser.add_argument("--use_intent_slot_constraint", action="store_true",
+                      help="Use predicted intent to mask invalid slot labels during decoding.")
+  parser.add_argument("--intent_slot_constraint_threshold", default=0.99, type=float,
+                      help="Minimum intent confidence required before slot constraints are applied.")
+  parser.add_argument("--use_bio_repair", action="store_true",
+                      help="Repair invalid BIO slot transitions after decoding.")
 
   # CRF option
   parser.add_argument("--use_crf", action="store_true",

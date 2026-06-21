@@ -1,6 +1,8 @@
 import torch.nn as nn
+from torch.types import Tensor
 from transformers import BertPreTrainedModel, BertModel
 from torchcrf import CRF
+from transformers.modeling_outputs import BaseModelOutputWithPoolingAndCrossAttentions
 from .module import IntentClassifier, SlotClassifier
 
 
@@ -19,7 +21,7 @@ class JointBERT(BertPreTrainedModel):
       config.hidden_size, self.num_slot_labels, args.dropout_rate)
 
     if args.use_crf:
-      self.crf = CRF(num_tags=self.num_slot_labels, batch_first=True)
+      self.crf = CRF(num_labels=self.num_slot_labels)
 
     if hasattr(self, "post_init"):
       self.post_init()
@@ -27,14 +29,14 @@ class JointBERT(BertPreTrainedModel):
       self.init_weights()
 
   def forward(self, input_ids, attention_mask, token_type_ids, intent_label_ids, slot_labels_ids):
-    outputs = self.bert(input_ids, attention_mask=attention_mask,
-                        # sequence_output, pooled_output, (hidden_states), (attentions)
-                        token_type_ids=token_type_ids)
-    sequence_output = outputs[0]
-    pooled_output = outputs[1]  # [CLS]
+    outputs: BaseModelOutputWithPoolingAndCrossAttentions = self.bert(input_ids, attention_mask=attention_mask,
+                                                                      # sequence_output, pooled_output, (hidden_states), (attentions)
+                                                                      token_type_ids=token_type_ids)
+    sequence_output: Tensor = outputs[0]
+    pooled_output: Tensor = outputs[1]  # [CLS]
 
-    intent_logits = self.intent_classifier(pooled_output)
-    slot_logits = self.slot_classifier(sequence_output)
+    intent_logits: Tensor = self.intent_classifier(pooled_output)
+    slot_logits: Tensor = self.slot_classifier(sequence_output)
 
     total_loss = 0
     # 1. Intent Softmax
@@ -53,10 +55,11 @@ class JointBERT(BertPreTrainedModel):
     if slot_labels_ids is not None:
       if self.args.use_crf:
         slot_loss = self.crf(slot_logits, slot_labels_ids,
-                             mask=attention_mask.byte(), reduction='mean')
-        slot_loss = -1 * slot_loss  # negative log-likelihood
+                             mask=attention_mask.byte())
+        slot_loss = -1 * slot_loss.mean()  # negative log-likelihood
       else:
-        slot_loss_fct = nn.CrossEntropyLoss(ignore_index=self.args.ignore_index)
+        slot_loss_fct = nn.CrossEntropyLoss(
+          ignore_index=self.args.ignore_index, reduction='mean')
         # Only keep active parts of the loss
         if attention_mask is not None:
           active_loss = attention_mask.view(-1) == 1
@@ -72,7 +75,5 @@ class JointBERT(BertPreTrainedModel):
     # add hidden states and attention if they are here
     outputs = ((intent_logits, slot_logits),) + outputs[2:]
 
-    outputs = (total_loss,) + outputs
-
     # (loss), logits, (hidden_states), (attentions) # Logits is a tuple of intent and slot logits
-    return outputs
+    return tuple((total_loss,) + outputs)  # type: ignore

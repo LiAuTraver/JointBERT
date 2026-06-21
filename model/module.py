@@ -1,4 +1,5 @@
 import torch.nn as nn
+from torch import Tensor
 
 
 class IntentClassifier(nn.Module):
@@ -7,7 +8,7 @@ class IntentClassifier(nn.Module):
     self.dropout = nn.Dropout(dropout_rate)
     self.linear = nn.Linear(input_dim, num_intent_labels)
 
-  def forward(self, x):
+  def forward(self, x) -> Tensor:
     x = self.dropout(x)
     return self.linear(x)
 
@@ -18,6 +19,6 @@ class SlotClassifier(nn.Module):
     self.dropout = nn.Dropout(dropout_rate)
     self.linear = nn.Linear(input_dim, num_slot_labels)
 
-  def forward(self, x):
+  def forward(self, x) -> Tensor:
     x = self.dropout(x)
     return self.linear(x)

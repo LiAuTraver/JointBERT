@@ -18,7 +18,7 @@ class JointDistilBERT(DistilBertPreTrainedModel):
       config.hidden_size, self.num_slot_labels, args.dropout_rate)
 
     if args.use_crf:
-      self.crf = CRF(num_tags=self.num_slot_labels, batch_first=True)
+      self.crf = CRF(num_labels=self.num_slot_labels)
 
     if hasattr(self, "post_init"):
       self.post_init()
@@ -51,10 +51,11 @@ class JointDistilBERT(DistilBertPreTrainedModel):
     if slot_labels_ids is not None:
       if self.args.use_crf:
         slot_loss = self.crf(slot_logits, slot_labels_ids,
-                             mask=attention_mask.byte(), reduction='mean')
-        slot_loss = -1 * slot_loss  # negative log-likelihood
+                             mask=attention_mask.byte())
+        slot_loss = -1 * slot_loss.mean()  # negative log-likelihood
       else:
-        slot_loss_fct = nn.CrossEntropyLoss(ignore_index=self.args.ignore_index)
+        slot_loss_fct = nn.CrossEntropyLoss(
+          ignore_index=self.args.ignore_index, reduction='mean')
         # Only keep active parts of the loss
         if attention_mask is not None:
           active_loss = attention_mask.view(-1) == 1
