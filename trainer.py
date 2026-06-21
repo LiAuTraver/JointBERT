@@ -1,3 +1,4 @@
+import argparse
 import os
 import logging
 from tqdm import tqdm, trange
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class Trainer(object):
-  def __init__(self, args, train_dataset: TensorDataset, dev_dataset: TensorDataset, test_dataset: TensorDataset):
+  def __init__(self, args: argparse.Namespace, train_dataset: TensorDataset, dev_dataset: TensorDataset, test_dataset: TensorDataset):
     self.args = args
     self.train_dataset = train_dataset
     self.dev_dataset = dev_dataset
@@ -36,7 +37,7 @@ class Trainer(object):
 
     # GPU or CPU
     self.device = "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
-    self.model.to(self.device)
+    self.model.to(self.device)  # type: ignore
 
   def train(self):
     train_sampler = RandomSampler(self.train_dataset)  # type: ignore
@@ -181,7 +182,8 @@ class Trainer(object):
       if slot_preds is None:
         if self.args.use_crf:
           # decode() in `torchcrf` returns list with best index directly
-          slot_preds = np.array(self.model.crf.decode(slot_logits))
+          slot_preds = np.array(
+            self.model.crf.decode(slot_logits))  # type: ignore
         else:
           slot_preds = slot_logits.detach().cpu().numpy()
 
@@ -189,7 +191,7 @@ class Trainer(object):
       else:
         if self.args.use_crf:
           slot_preds = np.append(slot_preds, np.array(
-            self.model.crf.decode(slot_logits)), axis=0)
+            self.model.crf.decode(slot_logits)), axis=0)  # type: ignore
         else:
           slot_preds = np.append(
             slot_preds, slot_logits.detach().cpu().numpy(), axis=0)
@@ -235,7 +237,7 @@ class Trainer(object):
       os.makedirs(self.args.model_dir)
     model_to_save = self.model.module if hasattr(
       self.model, 'module') else self.model
-    model_to_save.save_pretrained(self.args.model_dir)
+    model_to_save.save_pretrained(self.args.model_dir)  # type: ignore
 
     # Save training arguments together with the trained model
     torch.save(self.args, os.path.join(
@@ -252,7 +254,7 @@ class Trainer(object):
                                                     args=self.args,
                                                     intent_label_lst=self.intent_label_lst,
                                                     slot_label_lst=self.slot_label_lst)
-      self.model.to(self.device)
+      self.model.to(self.device)  # type: ignore
       logger.info("***** Model Loaded *****")
     except:
       raise Exception("Some model files might be missing...")

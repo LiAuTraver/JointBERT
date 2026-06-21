@@ -1,5 +1,8 @@
+import logging
 from pathlib import Path
 from typing import LiteralString
+
+logger = logging.getLogger(__name__)
 
 
 def check_dataset(data_dir: LiteralString | str | Path):
@@ -26,4 +29,29 @@ def check_dataset(data_dir: LiteralString | str | Path):
             f"slots={slots}"
         )
 
-    print(f"{split}: {len(seq_in)} samples checked.")
+    logger.info(f"{split}: {len(seq_in)} samples checked.")
+
+
+def cache_matches_tokenizer(features, tokenizer):
+  """
+  Verify that the cached features are compatible with the current tokenizer, 
+  which may be from stale/mismatched cached features.
+  """
+  if not features:
+    return True
+
+  input_ids = getattr(features[0], "input_ids", None)
+  if not input_ids:
+    return False
+
+  if tokenizer.cls_token_id is not None and input_ids[0] != tokenizer.cls_token_id:
+    logger.warning("Cached feature CLS id %s does not match tokenizer CLS id %s",
+                   input_ids[0], tokenizer.cls_token_id)
+    return False
+
+  if tokenizer.sep_token_id is not None and tokenizer.sep_token_id not in input_ids:
+    logger.warning("Cached feature does not contain tokenizer SEP id %s",
+                   tokenizer.sep_token_id)
+    return False
+
+  return True

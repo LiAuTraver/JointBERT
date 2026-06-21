@@ -6,7 +6,7 @@ from data_loader import load_and_cache_examples
 from sanity_check import check_dataset
 
 
-def main(args):
+def main(args: argparse.Namespace):
   init_logger()
   set_seed(args)
   tokenizer = load_tokenizer(args)
@@ -98,7 +98,7 @@ if __name__ == '__main__':
   check_dataset("data/atis")
   check_dataset("data/snips")
 
-  args = parser.parse_args()
+  args: argparse.Namespace = parser.parse_args()
 
   args.model_name_or_path = MODEL_PATH_MAP[args.model_type]
   main(args)

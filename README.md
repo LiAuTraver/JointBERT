@@ -1,3 +1,18 @@
+# Porting
+
+Python 3.13.
+
+## Deps
+
+- numpy>=2.4.6
+- seqeval>=1.2.2
+- torch>=2.12.1
+- torchcrf>=1.1.0
+- tqdm>=4.67.1
+- transformers==5.12.1
+
+## Orig README.md
+
 # JointBERT
 
 (Unofficial) Pytorch implementation of `JointBERT`: [BERT for Joint Intent Classification and Slot Filling](https://arxiv.org/abs/1902.10909)

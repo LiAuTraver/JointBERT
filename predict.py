@@ -179,14 +179,14 @@ def predict(pred_config):
       if slot_preds is None:
         if args.use_crf:
           # decode() in `torchcrf` returns list with best index directly
-          slot_preds = np.array(model.crf.decode(slot_logits))
+          slot_preds = np.array(model.crf.decode(slot_logits))  # type: ignore
         else:
           slot_preds = slot_logits.detach().cpu().numpy()
         all_slot_label_mask = batch[3].detach().cpu().numpy()
       else:
         if args.use_crf:
           slot_preds = np.append(slot_preds, np.array(
-            model.crf.decode(slot_logits)), axis=0)
+            model.crf.decode(slot_logits)), axis=0)  # type: ignore
         else:
           slot_preds = np.append(
             slot_preds, slot_logits.detach().cpu().numpy(), axis=0)

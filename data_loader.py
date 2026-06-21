@@ -1,12 +1,15 @@
+import argparse
 import os
 import copy
 import json
 import logging
-from typing import Optional
+from typing import Literal, Optional, LiteralString
 
 import torch
 from torch.utils.data import TensorDataset
+from transformers import TokenizersBackend
 
+from sanity_check import cache_matches_tokenizer
 from utils import get_intent_labels, get_slot_labels
 
 logger = logging.getLogger(__name__)
@@ -104,7 +107,7 @@ class JointProcessor(object):
 
       assert len(words) == len(slot_labels)
       examples.append(InputExample(guid=guid, words=words,
-                      intent_label=intent_label, slot_labels=slot_labels))
+                                   intent_label=intent_label, slot_labels=slot_labels))
     return examples
 
   def get_examples(self, mode):
@@ -123,8 +126,8 @@ class JointProcessor(object):
 
 
 processors = {
-    "atis": JointProcessor,
-    "snips": JointProcessor
+  "atis": JointProcessor,
+  "snips": JointProcessor
 }
 
 
@@ -213,53 +216,29 @@ def convert_examples_to_features(examples, max_seq_len, tokenizer,
         [str(x) for x in slot_labels_ids]))
 
     features.append(
-        InputFeatures(input_ids=input_ids,
-                      attention_mask=attention_mask,
-                      token_type_ids=token_type_ids,
-                      intent_label_id=intent_label_id,
-                      slot_labels_ids=slot_labels_ids
-                      ))
+      InputFeatures(input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    token_type_ids=token_type_ids,
+                    intent_label_id=intent_label_id,
+                    slot_labels_ids=slot_labels_ids
+                    ))
 
   return features
 
 
-def cache_matches_tokenizer(features, tokenizer):
-  """
-  Verify that the cached features are compatible with the current tokenizer, 
-  which may be from stale/mismatched cached features.
-  """
-  if not features:
-    return True
-
-  input_ids = getattr(features[0], "input_ids", None)
-  if not input_ids:
-    return False
-
-  if tokenizer.cls_token_id is not None and input_ids[0] != tokenizer.cls_token_id:
-    logger.warning("Cached feature CLS id %s does not match tokenizer CLS id %s",
-                   input_ids[0], tokenizer.cls_token_id)
-    return False
-
-  if tokenizer.sep_token_id is not None and tokenizer.sep_token_id not in input_ids:
-    logger.warning("Cached feature does not contain tokenizer SEP id %s",
-                   tokenizer.sep_token_id)
-    return False
-
-  return True
-
-
-def load_and_cache_examples(args, tokenizer, mode):
+def load_and_cache_examples(args: argparse.Namespace, tokenizer: TokenizersBackend,
+                            mode: Literal['train', 'dev', 'test']):
   processor = processors[args.task](args)
 
   # Load data features from cache or dataset file
   cached_features_file = os.path.join(
-      args.data_dir,
-      'cached_{}_{}_{}_{}'.format(
-          mode,
-          args.task,
-          list(filter(None, args.model_name_or_path.split("/"))).pop(),
-          args.max_seq_len
-      )
+    args.data_dir,
+    'cached_{}_{}_{}_{}'.format(
+      mode,
+      args.task,
+      list(filter(None, args.model_name_or_path.split("/"))).pop(),
+      args.max_seq_len
+    )
   )
 
   features = None
@@ -301,6 +280,5 @@ def load_and_cache_examples(args, tokenizer, mode):
   all_slot_labels_ids = torch.tensor(
     [f.slot_labels_ids for f in features], dtype=torch.long)
 
-  dataset = TensorDataset(all_input_ids, all_attention_mask,
-                          all_token_type_ids, all_intent_label_ids, all_slot_labels_ids)
-  return dataset
+  return TensorDataset(all_input_ids, all_attention_mask,
+                       all_token_type_ids, all_intent_label_ids, all_slot_labels_ids)
